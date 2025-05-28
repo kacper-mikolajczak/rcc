@@ -1,6 +1,6 @@
 # React Profiler Comparator testing
 
-| All stuff Callstack & ChatGPT ❤️
+> All stuff Callstack & ChatGPT ❤️
 
 ## 📌 Purpose
 
