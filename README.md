@@ -2,6 +2,8 @@
 
 > All stuff Callstack & ChatGPT ❤️
 
+❗[Now web version available via Github pages!](https://kacper-mikolajczak.github.io/rcc/)
+
 ## 📌 Purpose
 
 Bash script compares ***React Profiler JSON traces*** to analyze and quantify changes in rendering performance. It provides quick insight into regressions or improvements using statistical summaries and visual indicators. ***Should help with quickly comparing changes between React Profiler traces :)***
