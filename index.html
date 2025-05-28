@@ -14,6 +14,11 @@
         padding: 1em;
         overflow-x: auto;
       }
+      .chart-container {
+        margin-top: 20px;
+        position: relative;
+        height: 300px;
+      }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module" src="./script.js"></script>
@@ -34,15 +39,18 @@
     <button onclick="runAnalysis()">Run Analysis</button>
     <button onclick="reset()">Reset</button>
 
-    <a id="download" href="#" style="display: none" download
-      >📥 Download Report</a
-    >
+    <a id="download" href="#" style="display: none" download>📥 Download Report</a>
 
     <pre id="output"></pre>
 
     <canvas id="durationChart" height="150"></canvas>
+    <div class="chart-container">
+      <canvas id="comparisonChart"></canvas>
+    </div>
+
     <script>
       let chartInstance = null;
+      let comparisonChartInstance = null;
 
       function drawChart(labels, datasets) {
         const ctx = document.getElementById("durationChart").getContext("2d");
@@ -70,6 +78,75 @@
               },
             },
           },
+        });
+      }
+
+      function drawComparisonChart(baselineName, traceName, baselineDurations, traceDurations) {
+        const ctx = document.getElementById("comparisonChart").getContext("2d");
+        if (comparisonChartInstance) {
+          comparisonChartInstance.destroy();
+        }
+
+        const maxLen = Math.max(baselineDurations.length, traceDurations.length);
+        const labels = Array.from({ length: maxLen }, (_, i) => `Commit ${i + 1}`);
+        
+        let rollingDelta = 0;
+        const rollingDeltas = traceDurations.map((dur, i) => {
+          const diff = dur - (baselineDurations[i] || 0);
+          rollingDelta += diff;
+          return rollingDelta;
+        });
+
+        comparisonChartInstance = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: baselineName,
+                data: baselineDurations,
+                borderColor: "rgb(75, 192, 192)",
+                tension: 0.1,
+                fill: false
+              },
+              {
+                label: traceName,
+                data: traceDurations,
+                borderColor: "rgb(255, 99, 132)",
+                tension: 0.1,
+                fill: false
+              },
+              {
+                label: "Rolling Delta",
+                data: rollingDeltas,
+                borderColor: "rgb(153, 102, 255)",
+                tension: 0.1,
+                fill: false,
+                borderDash: [5, 5]
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              title: {
+                display: true,
+                text: "Commit-by-Commit Comparison"
+              },
+              legend: {
+                position: "top"
+              }
+            },
+            scales: {
+              y: {
+                title: {
+                  display: true,
+                  text: "Duration (ms)"
+                }
+              }
+            }
+          }
         });
       }
 
@@ -110,6 +187,8 @@
         document.getElementById("output").textContent = "";
         document.getElementById("files").value = "";
         document.getElementById("baseline").value = "";
+        if (chartInstance) chartInstance.destroy();
+        if (comparisonChartInstance) comparisonChartInstance.destroy();
       }
 
       async function runAnalysis() {
@@ -172,6 +251,14 @@
             );
             output.push(`  ${emoji(diffCnt)} Commit Count Diff: ${diffCnt}`);
             output.push("");
+
+            // Draw comparison chart for each trace vs baseline
+            drawComparisonChart(
+              files[baseIdx],
+              name,
+              durationsList[baseIdx],
+              durationsList[i]
+            );
           }
         } else {
           for (let i = 0; i < files.length - 1; i++) {
@@ -189,49 +276,6 @@
               output.push("");
             }
           }
-        }
-
-        // Optional rolling comparison
-        if (baselineFile) {
-          const confirmRoll = confirm(
-            "🔍 Compare each trace to the baseline one-by-one with rolling delta?"
-          );
-          if (confirmRoll) {
-            const baseDur = durationsList[0];
-            const baseName = files[0];
-
-            for (let i = 1; i < durationsList.length; i++) {
-              const traceDur = durationsList[i];
-              const traceName = files[i];
-              const maxLen = Math.max(baseDur.length, traceDur.length);
-
-              output.push(
-                `\n=== 🔎 One-by-One Comparison: ${traceName} vs Baseline ${baseName} (${maxLen} Commits) ===\n`
-              );
-              let rollingTotal = 0;
-
-              for (let j = 0; j < maxLen; j++) {
-                const d1 = baseDur[j] || 0;
-                const d2 = traceDur[j] || 0;
-                const diff = d2 - d1;
-                rollingTotal += diff;
-
-                output.push(
-                  `Commit #${j + 1}: 🧪 = ${d1.toFixed(
-                    3
-                  )} ms | 🧾 = ${d2.toFixed(3)} ms | Diff = ${emoji(diff)} ${
-                    diff >= 0 ? "+" : ""
-                  }${diff.toFixed(3)} ms | Rolling = ${
-                    rollingTotal >= 0 ? "+" : ""
-                  }${rollingTotal.toFixed(3)} ms`
-                );
-              }
-            }
-          }
-        } else {
-          output.push(
-            "⚠️ One-by-one comparison is only available when using a baseline file."
-          );
         }
 
         const labels = files;
