@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>React Profiler Trace Comparator</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        padding: 1em;
+      }
+      pre {
+        background: #f4f4f4;
+        padding: 1em;
+        overflow-x: auto;
+      }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script type="module" src="./script.js"></script>
+  </head>
+  <body>
+    <h1>📊 React Profiler Trace Comparator</h1>
+
+    <label for="files">Select trace files:</label>
+    <input type="file" id="files" multiple accept=".json" />
+
+    <br /><br />
+
+    <label for="baseline">Optional baseline:</label>
+    <input type="file" id="baseline" accept=".json" />
+
+    <br /><br />
+
+    <button onclick="runAnalysis()">Run Analysis</button>
+    <button onclick="reset()">Reset</button>
+
+    <a id="download" href="#" style="display: none" download
+      >📥 Download Report</a
+    >
+
+    <pre id="output"></pre>
+
+    <canvas id="durationChart" height="150"></canvas>
+    <script>
+      let chartInstance = null;
+
+      function drawChart(labels, datasets) {
+        const ctx = document.getElementById("durationChart").getContext("2d");
+        if (chartInstance) {
+          chartInstance.destroy();
+        }
+
+        chartInstance = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels,
+            datasets: datasets.map((data, i) => ({
+              label: data.label,
+              data: data.durations,
+              backgroundColor: `hsl(${(i * 60) % 360}, 70%, 60%)`,
+            })),
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: { position: "top" },
+              title: {
+                display: true,
+                text: "Total Render Duration per File (ms)",
+              },
+            },
+          },
+        });
+      }
+
+      function parseDurations(json) {
+        return json.dataForRoots
+          .flatMap((root) => root.commitData)
+          .map((commit) => commit.duration);
+      }
+
+      function calculatePercentiles(durations, output) {
+        const sorted = [...durations].sort((a, b) => a - b);
+        const percentiles = [50, 95, 99];
+        output.push("  • p50 / p95 / p99 (ms):");
+
+        for (const p of percentiles) {
+          const idx = Math.min(
+            sorted.length - 1,
+            Math.floor((sorted.length * p) / 100)
+          );
+          output.push(`    • p${p}: ${sorted[idx].toFixed(3)} ms`);
+        }
+      }
+
+      function emoji(diff) {
+        return diff > 0 ? "🔴" : diff < 0 ? "🟢" : "⚪️";
+      }
+
+      async function readFileAsJson(file) {
+        const text = await file.text();
+        return JSON.parse(text);
+      }
+
+      function formatOutput(lines) {
+        return lines.join("\n");
+      }
+
+      function reset() {
+        document.getElementById("output").textContent = "";
+        document.getElementById("files").value = "";
+        document.getElementById("baseline").value = "";
+      }
+
+      async function runAnalysis() {
+        const output = [];
+        const fileInputs = document.getElementById("files").files;
+        const baselineFile = document.getElementById("baseline").files[0];
+        const files = [];
+        const durationsList = [];
+        const counts = [];
+        const totals = [];
+
+        const traceFiles = [...fileInputs];
+
+        if (traceFiles.length === 0) {
+          alert("Please select at least one trace file.");
+          return;
+        }
+
+        output.push("=== 📁 Trace File Analysis ===\n");
+
+        async function processFile(file) {
+          const json = await readFileAsJson(file);
+          const durations = parseDurations(json);
+          const count = durations.length;
+          const total = durations.reduce((a, b) => a + b, 0);
+
+          files.push(file.name);
+          durationsList.push(durations);
+          counts.push(count);
+          totals.push(total);
+
+          output.push(`📄 File: ${file.name}`);
+          output.push(`  • Commit count: ${count}`);
+          output.push(`  • Total render duration: ${total.toFixed(3)} ms`);
+          calculatePercentiles(durations, output);
+          output.push("");
+        }
+
+        if (baselineFile) {
+          await processFile(baselineFile);
+        }
+
+        for (const file of traceFiles) {
+          await processFile(file);
+        }
+
+        // Comparison
+        output.push("=== 📊 Trace Comparison ===\n");
+
+        if (baselineFile) {
+          const baseIdx = 0;
+          for (let i = 1; i < files.length; i++) {
+            const name = files[i];
+            const diffDur = totals[i] - totals[baseIdx];
+            const diffCnt = counts[i] - counts[baseIdx];
+
+            output.push(`🔁 Comparing Baseline ↔️ ${name}`);
+            output.push(
+              `  ${emoji(diffDur)} Duration Diff: ${diffDur.toFixed(3)} ms`
+            );
+            output.push(`  ${emoji(diffCnt)} Commit Count Diff: ${diffCnt}`);
+            output.push("");
+          }
+        } else {
+          for (let i = 0; i < files.length - 1; i++) {
+            for (let j = i + 1; j < files.length; j++) {
+              const name1 = files[i];
+              const name2 = files[j];
+              const diffDur = totals[j] - totals[i];
+              const diffCnt = counts[j] - counts[i];
+
+              output.push(`🔁 Comparing: ${name1} ↔️ ${name2}`);
+              output.push(
+                `  ${emoji(diffDur)} Duration Diff: ${diffDur.toFixed(3)} ms`
+              );
+              output.push(`  ${emoji(diffCnt)} Commit Count Diff: ${diffCnt}`);
+              output.push("");
+            }
+          }
+        }
+
+        // Optional rolling comparison
+        if (baselineFile) {
+          const confirmRoll = confirm(
+            "🔍 Compare each trace to the baseline one-by-one with rolling delta?"
+          );
+          if (confirmRoll) {
+            const baseDur = durationsList[0];
+            const baseName = files[0];
+
+            for (let i = 1; i < durationsList.length; i++) {
+              const traceDur = durationsList[i];
+              const traceName = files[i];
+              const maxLen = Math.max(baseDur.length, traceDur.length);
+
+              output.push(
+                `\n=== 🔎 One-by-One Comparison: ${traceName} vs Baseline ${baseName} (${maxLen} Commits) ===\n`
+              );
+              let rollingTotal = 0;
+
+              for (let j = 0; j < maxLen; j++) {
+                const d1 = baseDur[j] || 0;
+                const d2 = traceDur[j] || 0;
+                const diff = d2 - d1;
+                rollingTotal += diff;
+
+                output.push(
+                  `Commit #${j + 1}: 🧪 = ${d1.toFixed(
+                    3
+                  )} ms | 🧾 = ${d2.toFixed(3)} ms | Diff = ${emoji(diff)} ${
+                    diff >= 0 ? "+" : ""
+                  }${diff.toFixed(3)} ms | Rolling = ${
+                    rollingTotal >= 0 ? "+" : ""
+                  }${rollingTotal.toFixed(3)} ms`
+                );
+              }
+            }
+          }
+        } else {
+          output.push(
+            "⚠️ One-by-one comparison is only available when using a baseline file."
+          );
+        }
+
+        const labels = files;
+        const dataset = [
+          {
+            label: "Total Duration",
+            durations: totals.map((v) => Number(v.toFixed(3))),
+          },
+        ];
+        drawChart(labels, dataset);
+
+        // Enable download
+        const blob = new Blob([formatOutput(output)], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const downloadLink = document.getElementById("download");
+        downloadLink.href = url;
+        downloadLink.download = "trace-report.txt";
+        downloadLink.style.display = "inline";
+
+        document.getElementById("output").textContent = formatOutput(output);
+      }
+    </script>
+  </body>
+</html>
