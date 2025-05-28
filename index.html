@@ -98,31 +98,23 @@
         });
 
         comparisonChartInstance = new Chart(ctx, {
-          type: "line",
+          type: "bar",
           data: {
             labels,
             datasets: [
               {
                 label: baselineName,
                 data: baselineDurations,
+                backgroundColor: "rgba(75, 192, 192, 0.5)",
                 borderColor: "rgb(75, 192, 192)",
-                tension: 0.1,
-                fill: false
+                borderWidth: 1
               },
               {
                 label: traceName,
                 data: traceDurations,
+                backgroundColor: "rgba(255, 99, 132, 0.5)",
                 borderColor: "rgb(255, 99, 132)",
-                tension: 0.1,
-                fill: false
-              },
-              {
-                label: "Rolling Delta",
-                data: rollingDeltas,
-                borderColor: "rgb(153, 102, 255)",
-                tension: 0.1,
-                fill: false,
-                borderDash: [5, 5]
+                borderWidth: 1
               }
             ]
           },
